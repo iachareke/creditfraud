@@ -1,0 +1,661 @@
+---
+title: "Credit Card Fraud Detection"
+author: "Iheanyi Achareke"
+date: "3/7/2020"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+\newpage
+
+# Overview
+
+## Introduction
+
+Credit card fraud is an inclusive term for fraud committed using a payment card, such as a credit card or debit card. According to the federal reserve, credit cards accounted for 21% of transactions in 2015 while debit cards accounted for 27% of transactions in the united states. About $190 billion is lost annually to credit card fraud in the United States. With the growth of card based online shopping and the prevalence of card payments at brick and mortar stores, it has become important that credit card companies are able to recognize and stop fraudulent card transactions.
+
+This project seeks to apply data science techniques to this problem as part of the capstone project of the HarvardX Data Science profesional certificate.
+
+
+## Problem Definition
+
+The problem to be addressed in this project is to predict fraudulent credit card transactions by using machine learning models. The models will be trained using supervised learning techniques. 
+
+
+## Data Preparation and environment preparation
+
+### Environment Preparation
+Our project environment is Microsoft R open R 3.5.3 with the following packages loaded from cran:
+
+* tidyverse 
+* caret
+* data.frame 
+* lubridate
+* scales
+* reshape2
+* ROSE
+* smotefamily
+* rpart
+* rpart.plot
+* cowplot
+* randomForest
+* ROCR
+* neuralnet
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#install required packages
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
+if(!require(reshape2)) install.packages("reshap2", repos = "http://cran.us.r-project.org")
+if(!require(ROSE)) install.packages("ROSE", repos = "http://cran.us.r-project.org")
+if(!require(smotefamily)) install.packages("smotefamily", repos = "http://cran.us.r-project.org")
+if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(ROCR)) install.packages("ROCR", repos = "http://cran.us.r-project.org")
+if(!require(neuralnet)) install.packages("neuralnet", repos = "http://cran.us.r-project.org")
+if(!require(cowplot)) install.packages("cowplot", repos = "http://cran.us.r-project.org")
+
+
+```
+
+### Data Preparation
+
+This project is based on the Credit Card Fraud Detection Data set available at <https://www.kaggle.com/mlg-ulb/creditcardfraud>.
+
+The data sets contains transactions made by credit cards in September 2013 by European cardholders.
+This data set presents transactions that occurred in two days, where we have 492 frauds out of 284,807 transactions. The data set is highly unbalanced, the positive class (frauds) account for 0.172% of all transactions.
+
+It contains only numerical input variables which are the result of a PCA transformation. Unfortunately, due to confidentiality issues, we cannot provide the original features and more background information about the data. Features V1, V2, … V28 are the principal components obtained with PCA, the only features which have not been transformed with PCA are 'Time' and 'Amount'. Feature 'Time' contains the seconds elapsed between each transaction and the first transaction in the data set. The feature 'Amount' is the transaction Amount, this feature can be used for example-dependent cost-sensitive learning. Feature 'Class' is the response variable and it takes value 1 in case of fraud and 0 otherwise.
+
+```{r include=FALSE}
+#load the data
+credit_card <- read.csv("~/creditfraud/creditcard.csv")
+  
+```
+
+In order to test our prediction models without over-fitting, the credit card data set will be split into a training set *cc_train* and a test set *cc_test*. We used a 90/10 split between the training and test set. 
+
+We shall use stratified sampling which means that the probability of seeing a fraudulent transaction will be approximately the same in both the training data and the test data. Stratified sampling also ensures that our model metrics are as close as possible to what we’d see in a whole population.
+\newpage
+
+# Method and Analysis
+
+## Data Exploration
+
+To gain a preliminary understanding of the structure of the data set, we display the first few rows of the *credit_card* data set
+
+```{r echo=FALSE}
+
+#Preview data
+credit_card %>%
+   select(Time, V1, V2, V3, V4, V27, V28, Amount, Class) %>%
+   head(10) %>%
+   knitr::kable()
+```
+
+The dimensions of the data set are: 
+
+```{r}
+#dislay dataset dimensions
+data.frame("Length" = nrow(credit_card), "Columns" = ncol(credit_card)) %>%
+knitr::kable()
+```
+
+Next we check for any missing data in the data set:
+
+Number of missing entries : `r sum(is.na(credit_card))`
+
+
+```{r fig.height=3, fig.width=5}
+credit_card %>% group_by(Class) %>% summarize(n = n()) %>%
+  mutate(Class = as.factor(Class)) %>%
+  ggplot(aes(Class, n, fill= Class)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values=c("#999999", "#E69F00"), breaks=c("0", "1"), labels= c("Legitimate", "Fraud")) +
+  scale_y_continuous(labels = comma, trans='log10') +
+  ggtitle("Distribution of legitimate and fraud Transactions")
+```
+
+The distribution of fraud cases shows the data is unbalanced with fraud cases representing less than 1% of the data. This presents a challenge for training algorithms.
+
+AS most of the data in the data set have been anonymized and scaled as V1 to v28, there is not mush to be learned from exploring them so i will focus on time and amount.
+
+```{r fig.height=3, fig.width=5}
+
+#time feature
+credit_card %>% ggplot(aes(Time)) + geom_histogram() + 
+  theme_classic() +
+  ggtitle("Time distribution of transactions")
+```
+
+The data contains credit card transaction over a span of two days. The distribution of transactions over the time has two peaks with a period of low activity in between. This may be explained as a drop in transaction at night.
+
+```{r echo=FALSE, fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+# amount trend
+credit_card %>% ggplot(aes(Amount)) + geom_histogram() + theme_classic() + 
+  scale_y_continuous(labels = comma, trans='log10') +
+  ggtitle("Distribution of transactions by amount")
+```
+
+The data set contains 284,807 transactions. The mean value of all transactions is \$88.35 while the largest transaction recorded in this data set amounts to $25,691.16.  The distribution of the monetary value of all transactions is heavily right-skewed. The vast majority of transactions are relatively small and only a tiny fraction of transactions comes even close to the maximum.
+
+Lastly, we investigate the correlation between the predictors and the Class. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#investigate correlation of predictors
+
+# Get lower triangle of the correlation matrix
+get_lower_tri<-function(cormat){
+  cormat[upper.tri(cormat)] <- NA
+  return(cormat)
+}
+# Get upper triangle of the correlation matrix
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+cor_cc <- round(cor(credit_card),2)
+
+upper_tri <- get_upper_tri(cor_cc)
+
+melted_corcc <- melt(upper_tri, na.rm = TRUE)
+
+#head(melted_corcc)
+
+ggplot(data = melted_corcc, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed() +
+  ggtitle("Correlation of predictors")
+```
+
+The predictors do not have any correlation with each other and only a few are correlated to the Class. This may be due to the fact that the data was prepared using PCA, hence the predictors are principal components. The Class imbalance may also distort the importance of correlations to the class variable.
+
+
+## Data Preparation
+
+The anonymized data has been scaled and centered around zero while the time and amount predictors have not. Without scaling them, they would unduly influence any logistic regression based algorithms or algorithms  that rely on distance(KNN). To avoid this, we apply scaling to the fields using the following formula
+
+$$z = \frac{x-\mu}{\rho}$$
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#-------------------------------------------------------------------
+# normalize time and amount
+credit_card <- credit_card %>% mutate(Time = scale(Time), Amount = scale(Amount))
+
+credit_card$Class <- factor(credit_card$Class, levels = c(0,1))
+
+set.seed(1)
+test_index <- createDataPartition(y = credit_card$Class, times = 1, p = 0.1, list = FALSE)
+cc_train <- credit_card[-test_index,]
+cc_test <- credit_card[test_index,]
+
+dim(cc_train)
+table(cc_train$Class)
+
+dim(cc_test)
+table(cc_test$Class)
+```
+
+The next step in preparing the training data is to transform it such that it will allow algorithms to pick up specific characteristics that make a transaction more or less likely to be fraudulent. An algorithm will achieve >99% by predicting all transactions as non-fraudulent. This is not what we want. We want the algorithm to correctly identify fraudulent transactions. 
+
+To solve this problem, we will evaluate several methods of balancing the data. 
+
+
+**Random over sampling:** Random Oversampling involves supplementing the training data with multiple copies of some of the minority classes. Oversampling can be done more than once (2x, 3x, 5x, 10x, etc.) This is one of the earliest proposed methods, that is also proven to be robust. Instead of duplicating every sample in the minority class, some of them may be randomly chosen with replacement.
+
+
+
+**Random under Sampling:** Randomly remove samples from the majority class, with or without replacement. This is one of the earliest techniques used to alleviate imbalance in the data set, however, it may increase the variance of the classifier and may potentially discard useful or important samples
+
+**Synthetic Minority Over-sampling Technique (SMOTE):** There are a number of methods available to over-sample a data set used in a typical classification problem (using a classification algorithm to classify a set of images, given a labelled training set of images). The most common technique is known as SMOTE: Synthetic Minority Over-sampling Technique. To illustrate how this technique works consider some training data which has s samples, and f features in the feature space of the data. Note that these features, for simplicity, are continuous. As an example, consider a data set of birds for classification. The feature space for the minority class for which we want to over-sample could be beak length, wingspan, and weight (all continuous). To then over-sample, take a sample from the data set, and consider its k nearest neighbors (in feature space). To create a synthetic data point, take the vector between one of those k neighbors, and the current data point. Multiply this vector by a random number x which lies between 0, and 1. Add this to the current data point to create the new, synthetic data point.
+
+```{r echo=FALSE, warning=FALSE}
+a <- cc_train %>% ggplot(aes(V4,V11, col = Class)) +
+  geom_point(size = 0.5, stroke = 0, shape = 16, alpha = 0.5) +
+  ggtitle('Original Data set') + 
+  theme(legend.position = "none")+
+  expand_limits(x = c(-7.5, 17.5), y = c(-5, 15))
+
+#------------------------------------------------------------------------
+#Balance training set using Random over sampling
+n_legit <- sum(cc_train$Class == 0)
+p <- 0.5
+n_new = n_legit/p
+set.seed(1)
+osample_result <- ovun.sample(Class~., data= cc_train, 
+                              method= "over",
+                              N= n_new,
+                              seed=20)
+oversampled_credit <- osample_result$data
+#table(oversampled_credit$Class)
+
+b <- oversampled_credit %>% ggplot(aes(V4,V11, col = Class)) +
+  geom_point(position = position_jitter(width = 0.2), size = 0.5, stroke = 0, shape = 16, alpha = 0.5) +
+  ggtitle('Random Over Sampling') + 
+  theme(legend.position = "none")+
+  expand_limits(x = c(-7.5, 17.5), y = c(-5, 15))
+
+
+#---------------------------------------------
+#Random under sampling
+n_fraud = sum(cc_train$Class == 1)
+n_new_rus <- n_fraud/p
+set.seed(1)
+usample_result <- ovun.sample(Class~., data= cc_train, 
+                             method= "under",
+                             N= n_new_rus,
+                             seed=20)
+undersampled_credit <- usample_result$data
+#table(undersampled_credit$Class)
+
+c <- undersampled_credit %>% ggplot(aes(V4,V11, col = Class)) +
+  geom_point(size = 0.5, stroke = 0, shape = 16, alpha = 0.5) +
+  ggtitle('Random Under Sampling') + 
+  theme(legend.position = "none") +
+  expand_limits(x = c(-7.5, 17.5), y = c(-5, 15))
+
+#-----------------------------------------------
+#Synthetic Minority Over-sampling Technique (SMOTE)
+
+n0 <- sum(cc_train$Class == 0)
+n1 <- sum(cc_train$Class == 1)
+
+p=0.65
+ntimes <- ((1-p)/p)*(n0/n1)-1
+#ntimes
+set.seed(1)
+smote_result <- SMOTE(X=cc_train[,-c(1,31)],
+                      target= cc_train$Class,
+                      K=5,
+                      dup_size= ntimes)
+credit_smote <- smote_result$data
+
+colnames(credit_smote)[30] <- "Class"
+credit_smote$Class <- factor(credit_smote$Class, levels = c(0,1))
+#table(credit_smote$Class)
+
+d <- credit_smote %>% ggplot(aes(V4,V11, col = Class)) +
+  geom_point(size = 0.5, stroke = 0, shape = 16, alpha = 0.5) +
+  ggtitle('SMOTE') + 
+  theme(legend.position = "none")+
+  expand_limits(x = c(-7.5, 17.5), y = c(-5, 15))
+
+plot_grid(a,b,c,d)
+```
+
+The training set generated through random over sampling has balanced the data set by repeating existing points from the minority class. Although this method balances the data, algorithms that are trained on this will learn too much about the same few point and the would not generalize well. The random under sampling data set has balanced the data by sampling a few points from the majority class. The problem with this is that a lot of information on the majority class has been lost. The SMOTE data set overcomes both of these challenges, by creating synthetic points to boost the minority class, we maintain all the information we have about the majority class, and boost the proportion of the minority class without over fitting a few points.
+
+
+## Modeling Approach
+
+We shall train a decision tree, random forest and artificial neural network on both the original data set and the balanced data set(SMOTE). Given the imbalance in the data set, accuracy will not be a good measure of model performance. Instead we will use receiver Receiver Operating Characteristics-Area Under the Curve or ROC-AUC performance measure. Essentially, the ROC-AUC outputs a value between zero and one, whereby one is a perfect score and zero the worst. If an algorithm has a ROC-AUC score of above 0.5, it is achieving a higher performance than random guessing. 
+
+**Confusion Matrix**
+
+```{r echo=FALSE}
+c_matrix <- data_frame(Class = "Predicted_Legit", Actual_Legit = "True Positive", Actual_Fraud = "False Positive")
+c_matrix <- bind_rows(c_matrix, data_frame(Class = "Predicted_Fraud", Actual_Legit = "False Negative", Actual_Fraud = "True Negative"))
+c_matrix %>% knitr::kable()
+```
+
+
+The confusion matrix also provides a good measure of performance. The True negatives represent fraudulent transactions that have been correctly classified. False positives are fraudulent transactions that have been classified as legitimate. These must be minimized or eliminated as each transaction in this category represents lost cash. The false negatives are legitimate transactions that will be declined as fraudulent transactions. These create a bad user experience and if they are sufficiently high, will result in lost revenue from aggrieved customers.
+
+### Decision Tree
+
+For a start, we train a decision tree model on the original data set and the SMOTE balanced set.
+
+```{r Decision tree SMOTE, echo=FALSE, fig.height=4, fig.width=7}
+# build prediction models 
+# Decision tree on smote data
+set.seed(1)
+model_CART <- rpart(Class~., credit_smote)
+p_cart <- rpart.plot(model_CART, main= "Decision tree on balanced data")
+  
+#Predict fraud cases
+predict_cart <- predict(model_CART, cc_test[,-1], type = 'class')
+c_cart <- confusionMatrix(predict_cart, cc_test$Class)
+```
+
+
+
+```{r}
+#calculate and plot auc
+x <- as.numeric(predict_cart)
+y <- as.numeric(cc_test$Class)
+pred_cart <- ROCR::prediction(x,y)
+perf_cart <- performance(pred_cart,"tpr","fpr")
+pp_cart <- plot(perf_cart,colorize=TRUE, main= "ROC-AUC: Decision tree on Balanced data")
+
+auc_ROCR_cart <- performance(pred_cart, measure = "auc")
+auc_ROCR_cart <- auc_ROCR_cart@y.values[[1]]
+
+```
+
+This decision tree achieves a ROC-AUC of `r auc_ROCR_cart`. This is quite impressive considering the simplicity of the model
+
+**Confusion Matrix: Decision tree on SMOTE data**
+
+```{r}
+as.table(c_cart) %>% knitr::kable()
+c_cart <- as.matrix(c_cart)
+```
+
+From the confusion matrix, the model correctly identified `r c_cart[2,2]/(c_cart[1,2]+c_cart[2,2])*100`% of the fraudulent cases
+
+Next we train a decision tree on the Original data set without any balancing
+
+```{r Decision tree original, echo=FALSE, fig.height=4, fig.width=7}
+#--------------------------------------------
+#Decision tree on original training set data
+set.seed(1)
+model_CART_2 <- rpart(Class~., cc_train[,-1])
+rpart.plot(model_CART_2, main= "Decision tree on unbalanced data")
+
+#Predict fraud cases
+predict_cart_2 <- predict(model_CART_2, cc_test[,-1], type = 'class')
+c_cart_2 <- confusionMatrix(predict_cart_2, cc_test$Class)
+```
+
+
+```{r}
+#calculate and plot auc
+x <- as.numeric(predict_cart_2)
+y <- as.numeric(cc_test$Class)
+pred_cart <- ROCR::prediction(x,y)
+perf_cart <- performance(pred_cart,"tpr","fpr")
+pp_cart_2 <- plot(perf_cart,colorize=TRUE, main= "ROC-AUC: Decision tree on Unbalanced data")
+
+auc_ROCR_cart_2 <- performance(pred_cart, measure = "auc")
+auc_ROCR_cart_2 <- auc_ROCR_cart_2@y.values[[1]]
+```
+
+This model obtains a ROC-AUC score of `r auc_ROCR_cart_2`
+
+**Confusion Matrix: Decision tree on Unbalanced data set**
+
+```{r}
+as.table(c_cart_2)  %>% knitr::kable()
+c_cart_2 <- as.matrix(c_cart_2)
+```
+
+Only `r c_cart_2[2,2]/(c_cart_2[1,2]+c_cart_2[2,2])*100`% of the fraud cases were identified. The model trained with the SMOTE data set did a better job at identifying fraud cases
+
+```{r echo=FALSE}
+#Create table to store results
+roc_results <- data_frame(method = "Decision tree", SMOTE = auc_ROCR_cart, original = auc_ROCR_cart_2)
+roc_results %>% knitr::kable()
+
+```
+
+
+The decision tree on the original set achieved a ROCAUC of `r auc_ROCR_cart_2` while the SMOTE data set achieved `r auc_ROCR_cart`. The model trained with SMOTE balanced data set recorded an improvement of `r (auc_ROCR_cart - auc_ROCR_cart_2)/auc_ROCR_cart * 100`%
+
+
+
+### Random Forest
+
+Next we train and compare random forest models on the SMOTE and original data set. The performance of the model is presented below:
+
+```{r Random forest SMOTE, echo=FALSE, fig.height=4, fig.width=7}
+#buIld random forest model on SMOTE training Data
+
+#set.seed(1)
+#rf_index <- createDataPartition(y = credit_smote$Class, times = 1, p = 0.1, list = FALSE)
+#rf_train <- credit_smote[rf_index,]
+
+set.seed(1)
+model_RF <- randomForest(Class~., data = credit_smote, importance= TRUE )
+
+
+#predict fraud cases
+predict_RF <- predict(model_RF,cc_test[,-1], type = 'class')
+cm_rf <- confusionMatrix(predict_RF, cc_test$Class)
+
+
+
+#calculate and plot auc
+pred_rf <- ROCR::prediction(as.numeric(predict_RF), as.numeric(cc_test$Class))
+perf_rf <- performance(pred_rf,"tpr","fpr")
+plot(perf_rf,colorize=TRUE, main= "ROC-AUC: Random forest on SMOTE Data")
+
+auc_ROCR_rf <- performance(pred_rf, measure = "auc")
+auc_ROCR_rf <- auc_ROCR_rf@y.values[[1]]
+
+```
+
+The Random Forest achieved and ROC-AUC of `r auc_ROCR_rf`
+
+**Confusion Matrix: Random Forest on SMOTE data**
+
+```{r}
+as.table(cm_rf)  %>% knitr::kable()
+cm_rf <- as.matrix(cm_rf)
+```
+
+The random forest identified `r cm_rf[2,2]/(cm_rf[1,2]+cm_rf[2,2])*100`% of fraud cases.
+
+Next we train a random forest on the unbalanced data. The performance is shown below:
+
+```{r Random forest original, fig.height=4, fig.width=7}
+#----------------------------------------------------------
+#buIld random forest model on unbalanced training Data
+
+#set.seed(1)
+#f_index <- createDataPartition(y = cc_train$Class, times = 1, p = 0.2, list = FALSE)
+#rf_train <- cc_train[rf_index,]
+set.seed(1)
+model_RF_2 <- randomForest(Class~., data = cc_train[,-1], importance= TRUE )
+
+
+#predict fraud cases
+predict_RF_2 <- predict(model_RF_2,cc_test[,-1], type = 'class')
+cm_rf_2 <- confusionMatrix(predict_RF_2, cc_test$Class)
+
+
+
+#calculate and plot auc
+pred_rf <- ROCR::prediction(as.numeric(predict_RF_2), as.numeric(cc_test$Class))
+perf_rf <- performance(pred_rf,"tpr","fpr")
+plot(perf_rf,colorize=TRUE, main= "ROC-AUC: Random forest on unbalanced data")
+
+auc_ROCR_rf_2 <- performance(pred_rf, measure = "auc")
+auc_ROCR_rf_2 <- auc_ROCR_rf_2@y.values[[1]]
+
+```
+
+**Confusion matrix: Random Forest on unbalanced data**
+
+```{r}
+as.table(cm_rf_2)  %>% knitr::kable()
+```
+
+
+```{r}
+# store results in table
+roc_results <- bind_rows(roc_results, data_frame(method = "Random forest", SMOTE = auc_ROCR_rf, original = auc_ROCR_rf_2))
+roc_results %>% knitr::kable()
+```
+
+The model trained on the SMOTE balanced data set shows an improvement over the performance of the original data set. This can be attributed to the fact that balancing the data set allows the algorithm place equal importance on both classes.
+
+### Artificial Neural Network
+
+Finally we will train an artificial neural network on the SMOTE data and original data. The performance of the model is as follows:
+
+Due to the limited computational resources available for training, we will train the model with only 10% of the training data.
+
+```{r ANN smote}
+#build Artificial neural network
+set.seed(1)
+nn_index <- createDataPartition(y = credit_smote$Class, times = 1, p = 0.1, list = FALSE)
+nn_train <- credit_smote[test_index,]
+
+
+set.seed(1)
+nn <- neuralnet(Class~ V1 + V2 + V3 + V4 + V5
+                + V6 + V7 + V8 + V9 + V10 + V11
+                + V12 + V13 + V14 + V15 + V16 + V17 
+                + V18 + V19 + V20 + V21 + V22 + V23
+                + V24 + V25 + V26 + V27 + V28 + Amount, 
+                data=nn_train,
+                hidden=c(5,2), 
+                linear.output=FALSE)
+
+```
+
+```{r ANN SMOTE 2}
+#plot(nn, main= "Artificial neural network")
+output <- compute(nn,cc_test[,-1])
+prediction <- output$net.result
+cm_nn <- confusionMatrix(as.factor(round(prediction[,2])),cc_test$Class)
+predict_nn <- as.factor(round(prediction[,2]))
+pred_nn <- ROCR::prediction(as.numeric(predict_nn),
+                            as.numeric(cc_test$Class))
+perf_nn <- performance(pred_nn,"tpr","fpr")
+plot(perf_nn,colorize=TRUE, main= "ROC-AUC: ANN on SMOTE data")
+
+auc_ROCR_nn <- performance(pred_nn, measure = "auc")
+auc_ROCR_nn <- auc_ROCR_nn@y.values[[1]]
+```
+
+**Confusion Matrix: ANN on SMOTE date**
+
+```{r}
+as.table(cm_nn) %>% knitr::kable()
+cm_nn <- as.matrix(cm_nn)
+```
+
+The artificial neural network identified `r cm_nn[2,2]/(cm_nn[1,2]+cm_nn[2,2])*100`% of the fraud cases. But this comes at a cost. The number of false negatives increased to `r cm_nn[2,1]`. While this model performs well in detecting fraud cases, it also causes an increased amount of user complaints due to legitimate transactions being declined.
+
+For comparison, we train the same model on the original data set.
+
+```{r ANN Original}
+#build Artificial neural network on unbalanced data set
+set.seed(1)
+nn_index <- createDataPartition(y = cc_train$Class, times = 1, p = 0.1, list = FALSE)
+nn_train <- cc_train[nn_index,]
+
+
+set.seed(1)
+nn_2 <- neuralnet(Class~ V1 + V2 + V3 + V4 + V5
+                + V6 + V7 + V8 + V9 + V10 + V11
+                + V12 + V13 + V14 + V15 + V16 + V17 
+                + V18 + V19 + V20 + V21 + V22 + V23
+                + V24 + V25 + V26 + V27 + V28 + Amount, data=nn_train, hidden=c(5,2), linear.output=FALSE)
+
+
+#plot(nn_2)
+output <- compute(nn_2,cc_test[,-1])
+prediction <- output$net.result
+cm_nn_2 <- confusionMatrix(as.factor(round(prediction[,2])),cc_test$Class)
+predict_nn <- as.factor(round(prediction[,2]))
+pred_nn <- ROCR::prediction(as.numeric(predict_nn), as.numeric(cc_test$Class))
+perf_nn <- performance(pred_nn,"tpr","fpr")
+plot(perf_nn,colorize=TRUE, main="ROC-AUC: ANN on unbalanced data")
+
+auc_ROCR_nn_2 <- performance(pred_nn, measure = "auc")
+auc_ROCR_nn_2 <- auc_ROCR_nn_2@y.values[[1]]
+
+
+roc_results <- bind_rows(roc_results, data_frame(method = "Artificial Neural Network", SMOTE = auc_ROCR_nn, original = auc_ROCR_nn_2))
+roc_results %>% knitr::kable()
+```
+
+**Confusion Matrix: ANN on unbalanced data**
+
+```{r}
+as.table(cm_nn_2) %>% knitr::kable()
+```
+
+\newpage
+
+# Results
+
+```{r}
+roc_results %>% knitr::kable()
+```
+
+The summary of the results show that all the models performed better when they are trained on the balanced data set. The artificial neural network performed best out of the models trained and achieved a ROC-AUC of `r auc_ROCR_nn`
+
+**Confusion Matrix Summary**
+
+```{r}
+c_cart <- as.matrix(c_cart)
+c_cart_2 <- as.matrix(c_cart_2)
+cm_rf <- as.matrix(cm_rf)
+cm_rf_2 <- as.matrix(cm_rf_2)
+cm_nn <- as.matrix(cm_nn)
+cm_nn_2 <- as.matrix(cm_nn_2)
+
+cm_table <- data.frame(Method="decision tree on SMOTE", 
+                       TP=c_cart[1,1], 
+                       FP=c_cart[1,2],
+                       FN=c_cart[2,1], 
+                       TN=c_cart[2,2])
+cm_table <- bind_rows(cm_table, data.frame(
+  Method="decision tree on Original", 
+  TP=c_cart_2[1,1],
+  FP=c_cart_2[1,2],
+  FN=c_cart_2[2,1],
+  TN=c_cart_2[2,2]))
+cm_table <- bind_rows(cm_table, data.frame(
+  Method="Random Forest on SMOTE", 
+  TP=cm_rf[1,1],
+  FP=cm_rf[1,2],
+  FN=cm_rf[2,1],
+  TN=cm_rf[2,2]))
+cm_table <- bind_rows(cm_table, data.frame(
+  Method="Random Forest on Original", 
+  TP=cm_rf_2[1,1],
+  FP=cm_rf_2[1,2],
+  FN=cm_rf_2[2,1],
+  TN=cm_rf_2[2,2]))
+cm_table <- bind_rows(cm_table, data.frame(
+  Method="ANN on SMOTE", 
+  TP=cm_nn[1,1],
+  FP=cm_nn[1,2],
+  FN=cm_nn[2,1],
+  TN=cm_nn[2,2]))
+cm_table <- bind_rows(cm_table, data.frame(
+  Method="ANN on Original", 
+  TP=cm_nn_2[1,1],
+  FP=cm_nn_2[1,2],
+  FN=cm_nn_2[2,1],
+  TN=cm_nn_2[2,2]))
+
+cm_table %>% knitr::kable()
+```
+
+From the confusion matrix, The artificial neural network is clearly able to properly classify more fraud cases than the other models. 
+
+# Conclusion
+
+The artificial neural network proved to be superior to both the random forest and decision tree. The results can be improved by tuning the parameters of the models and trying ensemble methods such as XGBoost and lightGBM. The Artificial neural network can also be improved by training it on the complete training set.
+
+# Acknowledgements
+
+The data set has been collected and analysed during a research collaboration of Worldline and the Machine Learning Group (http://mlg.ulb.ac.be) of ULB (Université Libre de Bruxelles) on big data mining and fraud detection.
+More details on current and past projects on related topics are available on https://www.researchgate.net/project/Fraud-detection-5 and the page of the DefeatFraud project
