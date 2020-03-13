@@ -18,7 +18,7 @@ if(!require(neuralnet)) install.packages("neuralnet", repos = "http://cran.us.r-
 
 #load the data suing relative path of csv file
 # the data can download at https://www.kaggle.com/mlg-ulb/creditcardfraud
-credit_card <- read.csv("~/creditfraud/creditcard.csv")
+credit_card <- read.csv("https://www.dropbox.com/s/ry8epx6sip80jee/creditcard.csv?dl=1")
 
 #dislay dataset dimensions
 dim(credit_card)

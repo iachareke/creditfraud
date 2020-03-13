@@ -84,7 +84,8 @@ It contains only numerical input variables which are the result of a PCA transfo
 
 ```{r include=FALSE}
 #load the data
-credit_card <- read.csv("~/creditfraud/creditcard.csv")
+credit_card <- read.csv("https://www.dropbox.com/s/ry8epx6sip80jee/creditcard.csv?dl=1")
+
   
 ```
 
